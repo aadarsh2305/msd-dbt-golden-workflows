@@ -18,6 +18,10 @@ jobs:
   dbt-validation:
     runs-on: ubuntu-latest
 
+    env:
+      SF_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SF_USER: ${{ secrets.SNOWFLAKE_USER }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
