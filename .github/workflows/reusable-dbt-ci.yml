@@ -49,3 +49,7 @@ jobs:
       - name: Parse dbt project
         working-directory: pharma_supply_chain
         run: dbt parse
+
+      - name: Lint SQL
+        working-directory: pharma_supply_chain
+        run: sqlfluff lint models --dialect snowflake
