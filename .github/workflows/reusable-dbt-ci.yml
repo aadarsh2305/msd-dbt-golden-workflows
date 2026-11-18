@@ -3,6 +3,13 @@ name: Reusable dbt CI
 
 on:
   workflow_call:
+    secrets:
+      SNOWFLAKE_ACCOUNT:
+        required: true
+      SNOWFLAKE_USER:
+        required: true
+      SNOWFLAKE_PRIVATE_KEY:
+        required: true
 
 permissions:
   contents: read
@@ -12,10 +19,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout caller repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -27,29 +34,49 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r pharma_supply_chain/requirements.txt
 
-      - name: Create CI profile
+      - name: Create Snowflake CI profile
+        shell: bash
+        env:
+          SF_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SF_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SF_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.dbt
+          umask 077
+          printf '%s\n' "$SF_PRIVATE_KEY" > ~/.dbt/ci_key.pem
+
           cat > ~/.dbt/profiles.yml <<'EOF'
           pharma_supply_chain:
             target: ci
             outputs:
               ci:
                 type: snowflake
-                account: placeholder-account
-                user: placeholder-user
-                password: placeholder-password
-                role: ACCOUNTADMIN
+                account: "{{ env_var('SF_ACCOUNT') }}"
+                user: "{{ env_var('SF_USER') }}"
+                private_key_path: /home/runner/.dbt/ci_key.pem
+                role: DBT_CI_ROLE
                 database: PHARMA_SUPPLY_CHAIN
                 warehouse: COMPUTE_WH
                 schema: DBT_CI
                 threads: 4
           EOF
 
-      - name: Parse dbt project
+      - name: Parse project
         working-directory: pharma_supply_chain
         run: dbt parse
 
       - name: Lint SQL
         working-directory: pharma_supply_chain
         run: sqlfluff lint models --dialect snowflake
+
+      - name: Test Snowflake connection
+        working-directory: pharma_supply_chain
+        run: dbt debug
+
+      - name: Build and test dbt models
+        working-directory: pharma_supply_chain
+        run: dbt build --select "resource_type:model" "resource_type:test"
+
+      - name: Remove temporary credentials
+        if: always()
+        run: rm -f ~/.dbt/ci_key.pem ~/.dbt/profiles.yml
